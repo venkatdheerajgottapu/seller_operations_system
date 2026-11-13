@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Dict, Any, List, Optional
+from sqlalchemy import func
 from database.connection import get_session
-from app.models import Payout, PayoutLine, Seller, OrderLine, PayoutEvent
+from app.models import Payout, PayoutLine, Seller, OrderLine, Fulfillment, Dispute, PayoutEvent
 
 
 class PayoutService:
@@ -108,4 +109,269 @@ class PayoutService:
                 'reconciliation_status': payout.reconciliation_status,
                 'discrepancy_amount': float(line_sum - header_net)
             }
+
+    @staticmethod
+    def calculate_seller_payout_eligibility(
+        seller_id: str,
+        as_of_date: Optional[datetime] = None,
+        hold_days: int = 14
+    ) -> Dict[str, Any]:
+        """
+        Calculate unbilled order lines eligible for payout:
+        - Order line must be DELIVERED.
+        - Delivery date + hold_days must be <= as_of_date.
+        - Must NOT already be paid out in any SALE payout line.
+        - Deducts unbilled REFUND lines for returned orders.
+        - Deducts unbilled resolved customer-favor DISPUTES.
+        - Calculates reserve hold and eligible reserve releases.
+        """
+        target_date = as_of_date or datetime.utcnow()
+        with get_session() as session:
+            seller = session.query(Seller).filter(Seller.seller_id == seller_id).first()
+            if not seller:
+                raise ValueError(f"Seller {seller_id} not found")
+
+            # 1. Fetch already settled order line IDs
+            settled_sale_ids = {
+                pl.order_line_id for pl in session.query(PayoutLine.order_line_id).filter(
+                    PayoutLine.line_type == 'SALE',
+                    PayoutLine.order_line_id.isnot(None)
+                ).all()
+            }
+
+            # 2. Query delivered order lines eligible by delivery date + hold period
+            cutoff_date = target_date - timedelta(days=hold_days)
+            eligible_lines = (
+                session.query(OrderLine)
+                .join(Fulfillment, OrderLine.order_line_id == Fulfillment.order_line_id)
+                .filter(
+                    OrderLine.seller_id == seller_id,
+                    OrderLine.status == 'DELIVERED',
+                    Fulfillment.status == 'DELIVERED',
+                    Fulfillment.delivered_at <= cutoff_date,
+                    ~OrderLine.order_line_id.in_(settled_sale_ids) if settled_sale_ids else True
+                )
+                .all()
+            )
+
+            # 3. Query unbilled refunds (returned lines)
+            settled_refund_ids = {
+                pl.order_line_id for pl in session.query(PayoutLine.order_line_id).filter(
+                    PayoutLine.line_type == 'REFUND',
+                    PayoutLine.order_line_id.isnot(None)
+                ).all()
+            }
+            refund_lines = (
+                session.query(OrderLine)
+                .filter(
+                    OrderLine.seller_id == seller_id,
+                    OrderLine.status == 'RETURNED',
+                    ~OrderLine.order_line_id.in_(settled_refund_ids) if settled_refund_ids else True
+                )
+                .all()
+            )
+
+            # 4. Query unbilled customer-favor disputes
+            settled_dispute_ids = {
+                pl.dispute_id for pl in session.query(PayoutLine.dispute_id).filter(
+                    PayoutLine.line_type == 'DISPUTE',
+                    PayoutLine.dispute_id.isnot(None)
+                ).all()
+            }
+            pending_disputes = (
+                session.query(Dispute)
+                .filter(
+                    Dispute.seller_id == seller_id,
+                    Dispute.status == 'RESOLVED_CUSTOMER_FAVOR',
+                    ~Dispute.dispute_id.in_(settled_dispute_ids) if settled_dispute_ids else True
+                )
+                .all()
+            )
+
+            gross_amount = sum((l.line_total for l in eligible_lines), Decimal('0.00'))
+            commission_deduction = sum((l.commission_amount for l in eligible_lines), Decimal('0.00'))
+            refund_deduction = sum((l.line_total for l in refund_lines), Decimal('0.00'))
+            dispute_deduction = sum((d.deduction_amount for d in pending_disputes), Decimal('0.00'))
+
+            reserve_rate = seller.reserve_rate or Decimal('0.1000')
+            reserve_hold_amount = (gross_amount * reserve_rate).quantize(Decimal('0.01'))
+
+            # Check eligible reserve releases from past payouts (>60 days old)
+            release_cutoff = target_date - timedelta(days=60)
+            past_held_payouts = (
+                session.query(Payout)
+                .filter(
+                    Payout.seller_id == seller_id,
+                    Payout.payout_date <= release_cutoff,
+                    Payout.status == 'PAID',
+                    Payout.reserve_hold_amount > Decimal('0.00')
+                )
+                .all()
+            )
+            already_released_sum = (
+                session.query(func.coalesce(func.sum(PayoutLine.amount), Decimal('0.00')))
+                .join(Payout, PayoutLine.payout_id == Payout.payout_id)
+                .filter(
+                    Payout.seller_id == seller_id,
+                    PayoutLine.line_type == 'RESERVE_RELEASE'
+                )
+                .scalar() or Decimal('0.00')
+            )
+            total_past_holds = sum((p.reserve_hold_amount for p in past_held_payouts), Decimal('0.00'))
+            eligible_reserve_release = max(Decimal('0.00'), total_past_holds - already_released_sum)
+            adjustments = eligible_reserve_release
+
+            net_payout = (
+                gross_amount - commission_deduction - refund_deduction
+                - dispute_deduction - reserve_hold_amount + adjustments
+            )
+
+            return {
+                'seller_id': seller_id,
+                'as_of_date': target_date.isoformat(),
+                'eligible_order_line_count': len(eligible_lines),
+                'refund_line_count': len(refund_lines),
+                'dispute_count': len(pending_disputes),
+                'gross_amount': float(gross_amount),
+                'commission_deduction': float(commission_deduction),
+                'refund_deduction': float(refund_deduction),
+                'dispute_deduction': float(dispute_deduction),
+                'reserve_hold_amount': float(reserve_hold_amount),
+                'adjustments': float(adjustments),
+                'eligible_net_payout': float(net_payout),
+                'eligible_line_ids': [l.order_line_id for l in eligible_lines],
+                'refund_line_ids': [l.order_line_id for l in refund_lines],
+                'dispute_ids': [d.dispute_id for d in pending_disputes],
+                'eligible_reserve_release': float(eligible_reserve_release)
+            }
+
+    @staticmethod
+    def generate_payout_batch(
+        seller_id: str,
+        as_of_date: Optional[datetime] = None,
+        hold_days: int = 14,
+        release_reserves: bool = True
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Dynamically generate and persist a new payout settlement batch for a seller.
+        """
+        target_date = as_of_date or datetime.utcnow()
+        with get_session() as session:
+            eligibility = PayoutService.calculate_seller_payout_eligibility(
+                seller_id, target_date, hold_days
+            )
+            if eligibility['eligible_order_line_count'] == 0 and eligibility['refund_line_count'] == 0:
+                return None
+
+            seller = session.query(Seller).filter(Seller.seller_id == seller_id).first()
+            payout_count = session.query(Payout).count() + 1
+            payout_id = f"PAYOUT-2026-{payout_count:06d}"
+            batch_ref = f"BATCH-MANUAL-2026-{payout_count:04d}"
+
+            gross = Decimal(str(eligibility['gross_amount']))
+            commission = Decimal(str(eligibility['commission_deduction']))
+            refunds = Decimal(str(eligibility['refund_deduction']))
+            disputes = Decimal(str(eligibility['dispute_deduction']))
+            reserve_hold = Decimal(str(eligibility['reserve_hold_amount']))
+            adjustments = Decimal(str(eligibility['adjustments'])) if release_reserves else Decimal('0.00')
+
+            net_payout = gross - commission - refunds - disputes - reserve_hold + adjustments
+
+            payout = Payout(
+                payout_id=payout_id,
+                seller_id=seller_id,
+                batch_reference=batch_ref,
+                payout_date=target_date,
+                status='SCHEDULED',
+                gross_amount=gross,
+                commission_deduction=commission,
+                refund_deduction=refunds,
+                dispute_deduction=disputes,
+                reserve_hold_amount=reserve_hold,
+                adjustments=adjustments,
+                net_payout_amount=net_payout,
+                reconciliation_status='RECONCILED',
+                created_at=target_date,
+                updated_at=target_date
+            )
+            session.add(payout)
+            session.flush()
+
+            line_idx = 1
+            lines = session.query(OrderLine).filter(OrderLine.order_line_id.in_(eligibility['eligible_line_ids'])).all()
+            for l in lines:
+                session.add(PayoutLine(
+                    payout_line_id=f"PAYLINE-{payout_id[-6:]}-{line_idx:03d}",
+                    payout_id=payout_id,
+                    order_line_id=l.order_line_id,
+                    line_type='SALE',
+                    amount=l.line_total,
+                    description=f"Gross sale credit for line {l.order_line_id}"
+                ))
+                line_idx += 1
+                session.add(PayoutLine(
+                    payout_line_id=f"PAYLINE-{payout_id[-6:]}-{line_idx:03d}",
+                    payout_id=payout_id,
+                    order_line_id=l.order_line_id,
+                    line_type='COMMISSION',
+                    amount=-l.commission_amount,
+                    description=f"Marketplace commission fee on line {l.order_line_id}"
+                ))
+                line_idx += 1
+
+            ref_lines = session.query(OrderLine).filter(OrderLine.order_line_id.in_(eligibility['refund_line_ids'])).all()
+            for rl in ref_lines:
+                session.add(PayoutLine(
+                    payout_line_id=f"PAYLINE-{payout_id[-6:]}-{line_idx:03d}",
+                    payout_id=payout_id,
+                    order_line_id=rl.order_line_id,
+                    line_type='REFUND',
+                    amount=-rl.line_total,
+                    description=f"Customer refund debit for returned line {rl.order_line_id}"
+                ))
+                line_idx += 1
+
+            if reserve_hold > Decimal('0.00'):
+                session.add(PayoutLine(
+                    payout_line_id=f"PAYLINE-{payout_id[-6:]}-{line_idx:03d}",
+                    payout_id=payout_id,
+                    line_type='RESERVE_HOLD',
+                    amount=-reserve_hold,
+                    description=f"Rolling reserve hold ({(Decimal(str(seller.reserve_rate or 0.1)) * 100):.1f}%)"
+                ))
+                line_idx += 1
+
+            if release_reserves and adjustments > Decimal('0.00'):
+                session.add(PayoutLine(
+                    payout_line_id=f"PAYLINE-{payout_id[-6:]}-{line_idx:03d}",
+                    payout_id=payout_id,
+                    line_type='RESERVE_RELEASE',
+                    amount=adjustments,
+                    description="Rolling reserve release after hold period"
+                ))
+                line_idx += 1
+
+            disp_records = session.query(Dispute).filter(Dispute.dispute_id.in_(eligibility['dispute_ids'])).all()
+            for d in disp_records:
+                session.add(PayoutLine(
+                    payout_line_id=f"PAYLINE-{payout_id[-6:]}-{line_idx:03d}",
+                    payout_id=payout_id,
+                    order_line_id=d.order_line_id,
+                    dispute_id=d.dispute_id,
+                    line_type='DISPUTE',
+                    amount=-d.deduction_amount,
+                    description=f"Chargeback debit for dispute {d.dispute_id}"
+                ))
+                line_idx += 1
+
+            session.add(PayoutEvent(
+                payout_id=payout_id,
+                previous_status='CREATED',
+                new_status='SCHEDULED',
+                note=f"Manual batch payout generated for seller {seller_id}",
+                event_timestamp=target_date
+            ))
+
+            session.commit()
+            return PayoutService.get_payout_details(payout_id)
 

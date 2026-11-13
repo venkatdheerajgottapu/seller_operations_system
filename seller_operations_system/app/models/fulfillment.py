@@ -19,7 +19,7 @@ class Fulfillment(Base):
     
     tracking_number = Column(String(80), unique=True, nullable=False, index=True)
     carrier = Column(String(64), nullable=False)
-    status = Column(Enum(*FULFILLMENT_STATUSES, name='fulfillment_status_enum'), default='AWAITING_PICKUP', nullable=False, index=True)
+    status = Column(Enum(*FULFILLMENT_STATUSES, name='fulfillment_status_enum', validate_strings=True, create_constraint=True), default='AWAITING_PICKUP', nullable=False, index=True)
     
     shipped_at = Column(DateTime, nullable=True)
     estimated_delivery = Column(DateTime, nullable=True)

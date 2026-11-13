@@ -18,7 +18,7 @@ class Payout(Base):
     seller_id = Column(String(32), ForeignKey('sellers.seller_id'), nullable=False, index=True)
     batch_reference = Column(String(64), nullable=False, index=True)
     payout_date = Column(DateTime, nullable=False, index=True)
-    status = Column(Enum(*PAYOUT_STATUSES, name='payout_status_enum'), default='SCHEDULED', nullable=False, index=True)
+    status = Column(Enum(*PAYOUT_STATUSES, name='payout_status_enum', validate_strings=True, create_constraint=True), default='SCHEDULED', nullable=False, index=True)
 
     # Financial Breakdown
     gross_amount = Column(Numeric(12, 2), nullable=False)
@@ -33,7 +33,7 @@ class Payout(Base):
     
     # Audit & Reconciliation
     reconciliation_status = Column(
-        Enum(*RECONCILIATION_STATUSES, name='reconciliation_status_enum'),
+        Enum(*RECONCILIATION_STATUSES, name='reconciliation_status_enum', validate_strings=True, create_constraint=True),
         default='RECONCILED',
         nullable=False,
         index=True
@@ -78,7 +78,7 @@ class PayoutLine(Base):
     order_line_id = Column(String(48), ForeignKey('order_lines.order_line_id'), nullable=True, index=True)
     dispute_id = Column(String(32), ForeignKey('disputes.dispute_id'), nullable=True, index=True)
     
-    line_type = Column(Enum(*PAYOUT_LINE_TYPES, name='payout_line_type_enum'), nullable=False, index=True)
+    line_type = Column(Enum(*PAYOUT_LINE_TYPES, name='payout_line_type_enum', validate_strings=True, create_constraint=True), nullable=False, index=True)
     amount = Column(Numeric(12, 2), nullable=False)  # Positive for additions, negative for deductions
     description = Column(String(255), nullable=True)
 

@@ -1,6 +1,10 @@
 # Core Web & API Framework
 Flask>=3.0.0
 
+# Production WSGI Servers
+gunicorn>=22.0.0
+waitress>=3.0.0
+
 # Database & ORM
 SQLAlchemy>=2.0.0
 mysql-connector-python>=8.0.0
@@ -14,4 +18,3 @@ pytest>=8.0.0
 
 # Environment Configuration
 python-dotenv>=1.0.0
-

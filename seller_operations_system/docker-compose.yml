@@ -1,0 +1,45 @@
+services:
+  web:
+    build: .
+    container_name: seller_ops_web
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - FLASK_DEBUG=0
+      - SECRET_KEY=prod-compose-secret-key-seller-ops-2026-secure
+      - DATABASE_URL=mysql+mysqlconnector://seller_ops_user:seller_ops_pass@db:3306/seller_ops_db
+      - WORKERS=4
+      - LOG_LEVEL=info
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - app_logs:/app/logs
+      - app_exports:/app/exports
+
+  db:
+    image: mysql:8.0
+    container_name: seller_ops_mysql
+    restart: unless-stopped
+    environment:
+      - MYSQL_DATABASE=seller_ops_db
+      - MYSQL_USER=seller_ops_user
+      - MYSQL_PASSWORD=seller_ops_pass
+      - MYSQL_ROOT_PASSWORD=root_secure_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "seller_ops_user", "-pseller_ops_pass"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql_data:
+  app_logs:
+  app_exports:
+

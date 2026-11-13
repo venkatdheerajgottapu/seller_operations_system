@@ -1,6 +1,7 @@
 import logging
 import time
 import os
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from typing import Dict, Any, Generator
 from sqlalchemy import create_engine, text, event
@@ -11,6 +12,12 @@ import mysql.connector
 from app.config import Config, BASE_DIR
 
 logger = logging.getLogger(__name__)
+
+
+def utcnow() -> datetime:
+    """Return current naive UTC datetime, replacing deprecated datetime.utcnow()."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 
 # Base class for SQLAlchemy models
 Base = declarative_base()

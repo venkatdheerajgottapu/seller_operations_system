@@ -22,8 +22,8 @@ class Dispute(Base):
     seller_id = Column(String(32), ForeignKey('sellers.seller_id'), nullable=False, index=True)
     customer_id = Column(String(32), ForeignKey('customers.customer_id'), nullable=False, index=True)
 
-    dispute_type = Column(Enum(*DISPUTE_TYPES, name='dispute_type_enum'), nullable=False)
-    status = Column(Enum(*DISPUTE_STATUSES, name='dispute_status_enum'), default='OPEN', nullable=False, index=True)
+    dispute_type = Column(Enum(*DISPUTE_TYPES, name='dispute_type_enum', validate_strings=True, create_constraint=True), nullable=False)
+    status = Column(Enum(*DISPUTE_STATUSES, name='dispute_status_enum', validate_strings=True, create_constraint=True), default='OPEN', nullable=False, index=True)
     
     claim_amount = Column(Numeric(12, 2), nullable=False)
     deduction_amount = Column(Numeric(12, 2), default=0.00, nullable=False)

@@ -29,10 +29,18 @@ wheels/
 venv/
 env/
 ENV/
+.venv/
 
-# Environment Variables
+# Environment Variables & Secrets
 .env
+.env.*
 !.env.example
+
+# Local SQLite databases & backups
+*.sqlite
+*.sqlite3
+*.db
+backups/
 
 # IDE specific files
 .vscode/
@@ -45,10 +53,13 @@ ENV/
 .coverage
 htmlcov/
 
-# Application generated exports & logs
-exports/*.csv
-exports/*.json
-exports/*.sql
+# Logs & Runtime directories
+logs/
 *.log
 instance/
 
+# Application generated exports
+exports/*.csv
+exports/*.json
+exports/*.sql
+exports/manifest.json

@@ -16,7 +16,7 @@ class ProductListing(Base):
     category = Column(String(80), nullable=False, index=True)
     price = Column(Numeric(12, 2), nullable=False)
     stock_quantity = Column(Integer, default=0, nullable=False)
-    status = Column(Enum(*LISTING_STATUSES, name='listing_status_enum'), default='ACTIVE', nullable=False, index=True)
+    status = Column(Enum(*LISTING_STATUSES, name='listing_status_enum', validate_strings=True, create_constraint=True), default='ACTIVE', nullable=False, index=True)
     
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

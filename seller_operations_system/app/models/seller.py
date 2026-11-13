@@ -13,7 +13,7 @@ class Seller(Base):
     name = Column(String(120), nullable=False)
     email = Column(String(120), unique=True, nullable=False, index=True)
     phone = Column(String(32), nullable=True)
-    status = Column(Enum(*SELLER_STATUSES, name='seller_status_enum'), default='ACTIVE', nullable=False, index=True)
+    status = Column(Enum(*SELLER_STATUSES, name='seller_status_enum', validate_strings=True, create_constraint=True), default='ACTIVE', nullable=False, index=True)
     
     # Service Level Agreement (SLA) & Quality Metrics
     rating = Column(Numeric(3, 2), default=5.00, nullable=False)

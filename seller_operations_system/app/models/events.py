@@ -16,6 +16,16 @@ class SellerStatusEvent(Base):
 
     seller = relationship('Seller', back_populates='status_events')
 
+    def to_dict(self):
+        return {
+            'event_id': self.event_id,
+            'seller_id': self.seller_id,
+            'previous_status': self.previous_status,
+            'new_status': self.new_status,
+            'reason': self.reason,
+            'event_timestamp': self.event_timestamp.isoformat() if self.event_timestamp else None
+        }
+
 
 class ListingStatusEvent(Base):
     __tablename__ = 'listing_status_events'
@@ -28,6 +38,16 @@ class ListingStatusEvent(Base):
     event_timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     listing = relationship('ProductListing', back_populates='status_events')
+
+    def to_dict(self):
+        return {
+            'event_id': self.event_id,
+            'listing_id': self.listing_id,
+            'previous_status': self.previous_status,
+            'new_status': self.new_status,
+            'reason': self.reason,
+            'event_timestamp': self.event_timestamp.isoformat() if self.event_timestamp else None
+        }
 
 
 class OrderStatusEvent(Base):
@@ -42,6 +62,16 @@ class OrderStatusEvent(Base):
 
     order = relationship('Order', back_populates='status_events')
 
+    def to_dict(self):
+        return {
+            'event_id': self.event_id,
+            'order_id': self.order_id,
+            'previous_status': self.previous_status,
+            'new_status': self.new_status,
+            'reason': self.reason,
+            'event_timestamp': self.event_timestamp.isoformat() if self.event_timestamp else None
+        }
+
 
 class FulfillmentEvent(Base):
     __tablename__ = 'fulfillment_events'
@@ -55,6 +85,16 @@ class FulfillmentEvent(Base):
 
     fulfillment = relationship('Fulfillment', back_populates='events')
 
+    def to_dict(self):
+        return {
+            'event_id': self.event_id,
+            'fulfillment_id': self.fulfillment_id,
+            'event_type': self.event_type,
+            'location': self.location,
+            'notes': self.notes,
+            'event_timestamp': self.event_timestamp.isoformat() if self.event_timestamp else None
+        }
+
 
 class PayoutEvent(Base):
     __tablename__ = 'payout_events'
@@ -67,4 +107,14 @@ class PayoutEvent(Base):
     event_timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     payout = relationship('Payout', back_populates='status_events')
+
+    def to_dict(self):
+        return {
+            'event_id': self.event_id,
+            'payout_id': self.payout_id,
+            'previous_status': self.previous_status,
+            'new_status': self.new_status,
+            'note': self.note,
+            'event_timestamp': self.event_timestamp.isoformat() if self.event_timestamp else None
+        }
 

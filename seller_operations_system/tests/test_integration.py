@@ -106,6 +106,57 @@ def test_commission_calculation(app_client):
     assert res['rate'] == Decimal('0.0800')
 
 
+def test_commission_min_max_caps(app_client):
+    """Verify commission rule boundary enforcement: min floor ($0.50/$1.00) and max ceiling ($150.00)."""
+    # 1. Micro-transaction floor cap test:
+    # Electronics base rate is 8%, min commission is $1.00.
+    # $5.00 * 8% = $0.40 -> should be floored at $1.00
+    micro_res = CommissionService.calculate_commission('Electronics', Decimal('5.00'), datetime(2026, 5, 1))
+    assert micro_res['amount'] == Decimal('1.00'), f"Expected $1.00 min cap, got {micro_res['amount']}"
+
+    # Apparel base rate is 15%, min commission is $0.50.
+    # $1.00 * 15% = $0.15 -> should be floored at $0.50
+    apparel_micro = CommissionService.calculate_commission('Apparel & Fashion', Decimal('1.00'), datetime(2026, 5, 1))
+    assert apparel_micro['amount'] == Decimal('0.50'), f"Expected $0.50 min cap, got {apparel_micro['amount']}"
+
+    # 2. Large transaction ceiling cap test:
+    # Electronics max commission is $150.00.
+    # $5,000.00 * 8% = $400.00 -> should be capped at $150.00
+    large_res = CommissionService.calculate_commission('Electronics', Decimal('5000.00'), datetime(2026, 5, 1))
+    assert large_res['amount'] == Decimal('150.00'), f"Expected $150.00 max cap, got {large_res['amount']}"
+
+
+def test_payout_eligibility_and_batch_generation(app_client):
+    """Verify delivery-based payout eligibility and dynamic batch generation."""
+    sellers = SellerService.get_all_sellers()
+    assert len(sellers) > 0
+    test_seller_id = sellers[0]['seller_id']
+
+    # Eligibility calculation
+    elig = PayoutService.calculate_seller_payout_eligibility(
+        test_seller_id,
+        as_of_date=datetime(2026, 12, 31),
+        hold_days=0
+    )
+    assert 'seller_id' in elig
+    assert elig['seller_id'] == test_seller_id
+    assert 'eligible_net_payout' in elig
+    assert 'reserve_hold_amount' in elig
+
+    # Test dynamic batch creation if eligible lines or refunds exist
+    new_batch = PayoutService.generate_payout_batch(
+        seller_id=test_seller_id,
+        as_of_date=datetime(2026, 12, 31),
+        hold_days=0,
+        release_reserves=True
+    )
+    if new_batch:
+        assert new_batch['status'] == 'SCHEDULED'
+        assert new_batch['seller_id'] == test_seller_id
+        assert new_batch['reconciliation_status'] == 'RECONCILED'
+        assert len(new_batch['lines']) > 0
+
+
 def test_payout_reconciliation_and_formula(app_client):
     """Verify financial formula: Net = Gross - Comm - Refund - Dispute - Reserve + Adj."""
     payouts_data = PayoutService.get_payouts(page=1, page_size=10)

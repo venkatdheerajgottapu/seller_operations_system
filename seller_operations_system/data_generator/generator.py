@@ -92,6 +92,9 @@ class SyntheticDataGenerator:
         # 10. Disputes
         self._generate_disputes(config['disputes'])
         
+        # 10b. Synchronize seller SLA metrics directly from generated transactions
+        self._sync_seller_sla_metrics()
+        
         # 11 & 12. Payouts and Payout Lines
         self._generate_payouts_and_lines()
         
@@ -207,7 +210,7 @@ class SyntheticDataGenerator:
 
     def _generate_orders_and_lines(self, count: int):
         base_date = datetime(2026, 3, 1)
-        rule_map = {r.category: r.base_rate for r in self.commission_rules}
+        rule_map = {r.category: (r.base_rate, r.min_commission, r.max_commission) for r in self.commission_rules}
 
         for i in range(1, count + 1):
             order_id = f"ORD-2026-{i:06d}"
@@ -234,8 +237,15 @@ class SyntheticDataGenerator:
                 line_total = unit_price * qty
                 gross_sum += line_total
                 
-                comm_rate = rule_map.get(listing.category, Decimal('0.1000'))
-                comm_amount = (line_total * comm_rate).quantize(Decimal('0.01'))
+                cat_rule = rule_map.get(listing.category, (Decimal('0.1000'), Decimal('0.50'), None))
+                comm_rate, min_comm, max_comm = cat_rule
+                raw_comm = (line_total * comm_rate).quantize(Decimal('0.01'))
+                if raw_comm < min_comm:
+                    comm_amount = min_comm
+                elif max_comm and raw_comm > max_comm:
+                    comm_amount = max_comm
+                else:
+                    comm_amount = raw_comm
                 
                 line_status = order_status
                 if order_status == 'DELIVERED':
@@ -274,14 +284,58 @@ class SyntheticDataGenerator:
             )
             self.orders.append(order)
 
-            # Order Status Event
+            # Order Status Progression Events
             self.order_events.append(OrderStatusEvent(
                 order_id=order_id,
-                previous_status='PLACED',
-                new_status=order_status,
-                reason='Order processed through automated marketplace checkout',
+                previous_status='NEW_CHECKOUT',
+                new_status='PLACED',
+                reason='Customer placed order through checkout',
                 event_timestamp=order_date
             ))
+            if order_status in ('PROCESSING', 'SHIPPED', 'DELIVERED', 'RETURNED'):
+                proc_time = order_date + timedelta(hours=random.randint(1, 4))
+                self.order_events.append(OrderStatusEvent(
+                    order_id=order_id,
+                    previous_status='PLACED',
+                    new_status='PROCESSING',
+                    reason='Payment confirmed; order released for fulfillment',
+                    event_timestamp=proc_time
+                ))
+            if order_status in ('SHIPPED', 'DELIVERED', 'RETURNED'):
+                ship_time = order_date + timedelta(days=random.randint(1, 2))
+                self.order_events.append(OrderStatusEvent(
+                    order_id=order_id,
+                    previous_status='PROCESSING',
+                    new_status='SHIPPED',
+                    reason='Carrier picked up shipment',
+                    event_timestamp=ship_time
+                ))
+            if order_status in ('DELIVERED', 'RETURNED'):
+                deliv_time = order_date + timedelta(days=random.randint(4, 6))
+                self.order_events.append(OrderStatusEvent(
+                    order_id=order_id,
+                    previous_status='SHIPPED',
+                    new_status='DELIVERED',
+                    reason='Package successfully delivered to customer',
+                    event_timestamp=deliv_time
+                ))
+            if order_status == 'RETURNED':
+                ret_time = order_date + timedelta(days=random.randint(8, 14))
+                self.order_events.append(OrderStatusEvent(
+                    order_id=order_id,
+                    previous_status='DELIVERED',
+                    new_status='RETURNED',
+                    reason='Return received by seller facility; refund issued',
+                    event_timestamp=ret_time
+                ))
+            elif order_status == 'CANCELLED':
+                self.order_events.append(OrderStatusEvent(
+                    order_id=order_id,
+                    previous_status='PLACED',
+                    new_status='CANCELLED',
+                    reason='Cancelled by customer prior to shipment dispatch',
+                    event_timestamp=order_date + timedelta(hours=random.randint(1, 6))
+                ))
 
     def _generate_fulfillments_and_events(self):
         for line in self.order_lines:
@@ -342,6 +396,14 @@ class SyntheticDataGenerator:
                 notes=f"Dispatched via {carrier}",
                 event_timestamp=shipped_at
             ))
+            if is_delayed:
+                self.fulfillment_events.append(FulfillmentEvent(
+                    fulfillment_id=fulfillment_id,
+                    event_type='EXCEPTION_DELAY',
+                    location=f"Carrier Transit Hub ({carrier})",
+                    notes=f"Logistics delay: weather/carrier exception added {delay_days} days to transit",
+                    event_timestamp=shipped_at + timedelta(days=2)
+                ))
             if delivered_at:
                 self.fulfillment_events.append(FulfillmentEvent(
                     fulfillment_id=fulfillment_id,
@@ -349,6 +411,21 @@ class SyntheticDataGenerator:
                     location=f"Destination Delivery Point",
                     notes="Delivered and signature captured",
                     event_timestamp=delivered_at
+                ))
+            if line.status == 'RETURNED':
+                self.fulfillment_events.append(FulfillmentEvent(
+                    fulfillment_id=fulfillment_id,
+                    event_type='RETURN_REQUESTED',
+                    location=f"Customer Shipping Origin",
+                    notes="Return merchandise authorization (RMA) initiated by customer",
+                    event_timestamp=estimated_delivery + timedelta(days=2)
+                ))
+                self.fulfillment_events.append(FulfillmentEvent(
+                    fulfillment_id=fulfillment_id,
+                    event_type='RETURN_RECEIVED',
+                    location=f"Seller Processing Facility ({line.seller_id})",
+                    notes="Returned merchandise inspected, accepted, and return confirmed",
+                    event_timestamp=estimated_delivery + timedelta(days=6)
                 ))
 
     def _generate_reviews(self):
@@ -411,6 +488,43 @@ class SyntheticDataGenerator:
             )
             self.disputes.append(dispute)
 
+    def _sync_seller_sla_metrics(self):
+        """
+        Derive factual SLA and quality metrics for all sellers directly from generated transactions.
+        """
+        for seller in self.sellers:
+            s_lines = [l for l in self.order_lines if l.seller_id == seller.seller_id]
+            total_lines = len(s_lines)
+            if total_lines == 0:
+                continue
+
+            delivered_lines = [l for l in s_lines if l.status == 'DELIVERED']
+            cancelled_lines = [l for l in s_lines if l.status == 'CANCELLED']
+            returned_lines = [l for l in s_lines if l.status == 'RETURNED']
+
+            s_fuls = [f for f in self.fulfillments if f.seller_id == seller.seller_id and f.status == 'DELIVERED']
+            delayed_fuls = [f for f in s_fuls if f.is_delayed]
+
+            on_time_count = max(0, len(s_fuls) - len(delayed_fuls))
+            on_time_rate = Decimal(str(round((on_time_count / len(s_fuls)) * 100, 2))) if s_fuls else Decimal('100.00')
+
+            fulfillment_rate = Decimal(str(round((len(delivered_lines) / total_lines) * 100, 2)))
+            cancellation_rate = Decimal(str(round((len(cancelled_lines) / total_lines) * 100, 2)))
+            return_rate = Decimal(str(round((len(returned_lines) / total_lines) * 100, 2)))
+
+            s_disputes = [d for d in self.disputes if d.seller_id == seller.seller_id]
+            dispute_rate = Decimal(str(round((len(s_disputes) / total_lines) * 100, 2)))
+
+            s_reviews = [r for r in self.reviews if r.seller_id == seller.seller_id]
+            avg_rating = Decimal(str(round(sum(r.rating for r in s_reviews) / len(s_reviews), 2))) if s_reviews else Decimal('5.00')
+
+            seller.on_time_shipment_rate = on_time_rate
+            seller.fulfillment_rate = fulfillment_rate
+            seller.cancellation_rate = cancellation_rate
+            seller.return_rate = return_rate
+            seller.dispute_rate = dispute_rate
+            seller.rating = avg_rating
+
     def _generate_payouts_and_lines(self):
         """
         Group delivered, eligible order lines by seller and settlement period into payout batches.
@@ -418,15 +532,22 @@ class SyntheticDataGenerator:
         Net payout = Gross sales - Commission - Refunds - Dispute deductions - Reserve holds + Eligible adjustments
         """
         delivered_lines = [l for l in self.order_lines if l.status == 'DELIVERED']
+        returned_lines = [l for l in self.order_lines if l.status == 'RETURNED']
+
         lines_by_seller: Dict[str, List[OrderLine]] = {}
         for l in delivered_lines:
             lines_by_seller.setdefault(l.seller_id, []).append(l)
 
+        returned_by_seller: Dict[str, List[OrderLine]] = {}
+        for l in returned_lines:
+            returned_by_seller.setdefault(l.seller_id, []).append(l)
+
         payout_counter = 1
         for seller_id, lines in lines_by_seller.items():
             seller = next(s for s in self.sellers if s.seller_id == seller_id)
+            seller_returns = returned_by_seller.get(seller_id, [])
             
-            # Chunk lines into batches of 10-25 lines per settlement
+            # Chunk lines into batches of 15 lines per settlement
             chunk_size = 15
             for chunk_idx in range(0, len(lines), chunk_size):
                 chunk = lines[chunk_idx:chunk_idx + chunk_size]
@@ -440,9 +561,25 @@ class SyntheticDataGenerator:
                 commission = sum(l.commission_amount for l in chunk)
                 reserve_rate = seller.reserve_rate or Decimal('0.1000')
                 reserve_hold = (gross * reserve_rate).quantize(Decimal('0.01'))
-                refunds = Decimal('0.00')
+                
+                # Check for returns belonging to this seller
+                chunk_returns = []
+                if seller_returns:
+                    chunk_returns = seller_returns[:2]
+                    seller_returns = seller_returns[2:]
+                    returned_by_seller[seller_id] = seller_returns
+
+                refunds = sum(rl.line_total for rl in chunk_returns)
                 dispute_deduction = Decimal('0.00')
+
+                # Reserve release in subsequent settlement chunks (eligible adjustments)
                 adjustments = Decimal('0.00')
+                has_reserve_release = False
+                release_amount = Decimal('0.00')
+                if chunk_idx > 0 and len(chunk) >= 5:
+                    has_reserve_release = True
+                    release_amount = (gross * Decimal('0.05')).quantize(Decimal('0.01'))
+                    adjustments += release_amount
 
                 # Check if any chunk line had a resolved dispute
                 chunk_line_ids = {l.order_line_id for l in chunk}
@@ -497,6 +634,18 @@ class SyntheticDataGenerator:
                     ))
                     line_idx += 1
 
+                # Negative Refund lines if returns exist
+                for rl in chunk_returns:
+                    self.payout_lines.append(PayoutLine(
+                        payout_line_id=f"PAYLINE-{payout_id[-6:]}-{line_idx:03d}",
+                        payout_id=payout_id,
+                        order_line_id=rl.order_line_id,
+                        line_type='REFUND',
+                        amount=-rl.line_total,
+                        description=f"Customer refund debit for returned item {rl.order_line_id}"
+                    ))
+                    line_idx += 1
+
                 # Reserve hold line
                 self.payout_lines.append(PayoutLine(
                     payout_line_id=f"PAYLINE-{payout_id[-6:]}-{line_idx:03d}",
@@ -506,6 +655,17 @@ class SyntheticDataGenerator:
                     description=f"Rolling reserve hold ({(reserve_rate * 100):.1f}%)"
                 ))
                 line_idx += 1
+
+                # Reserve release line
+                if has_reserve_release and release_amount > Decimal('0.00'):
+                    self.payout_lines.append(PayoutLine(
+                        payout_line_id=f"PAYLINE-{payout_id[-6:]}-{line_idx:03d}",
+                        payout_id=payout_id,
+                        line_type='RESERVE_RELEASE',
+                        amount=release_amount,
+                        description="Rolling reserve release from prior eligible settlements"
+                    ))
+                    line_idx += 1
 
                 # Dispute deductions if any
                 for d in chunk_disputes:
@@ -553,6 +713,9 @@ class SyntheticDataGenerator:
                     description=f"PREMATURE payout credit for undelivered line {line.order_line_id}"
                 )
                 self.payout_lines.append(premature_payout_line)
+                # Keep header in sync so this is ONLY a premature delivery anomaly, not a reconciliation math discrepancy
+                p.gross_amount += line.line_total
+                p.net_payout_amount += line.line_total
                 
                 self.ground_truth_anomalies.append(AnomalyRecord(
                     scenario_id=1,
@@ -581,6 +744,9 @@ class SyntheticDataGenerator:
                 description=f"DUPLICATE commission deduction for line {target_line.order_line_id}"
             )
             self.payout_lines.append(dup_commission_line)
+            # Adjust header so lines match header
+            target_payout.commission_deduction += target_line.commission_amount
+            target_payout.net_payout_amount -= target_line.commission_amount
             
             self.ground_truth_anomalies.append(AnomalyRecord(
                 scenario_id=2,
@@ -625,8 +791,15 @@ class SyntheticDataGenerator:
         if dispute_lines:
             target_dispute_line = dispute_lines[0]
             target_dispute_id = target_dispute_line.dispute_id
+            target_payout = next(p for p in self.payouts if p.payout_id == target_dispute_line.payout_id)
             # Remove the dispute deduction line from payout
             self.payout_lines.remove(target_dispute_line)
+            # Clear dispute deduction in header so header matches lines (omitted from deduction)
+            target_payout.dispute_deduction = max(Decimal('0.00'), target_payout.dispute_deduction - target_dispute_line.amount * -1)
+            target_payout.net_payout_amount = (
+                target_payout.gross_amount - target_payout.commission_deduction - target_payout.refund_deduction
+                - target_payout.dispute_deduction - target_payout.reserve_hold_amount + target_payout.adjustments
+            )
             
             self.ground_truth_anomalies.append(AnomalyRecord(
                 scenario_id=4,

@@ -17,8 +17,8 @@ class Order(Base):
     order_id = Column(String(32), primary_key=True)  # ORD-2026-000001
     customer_id = Column(String(32), ForeignKey('customers.customer_id'), nullable=False, index=True)
     order_date = Column(DateTime, nullable=False, index=True)
-    order_status = Column(Enum(*ORDER_STATUSES, name='order_status_enum'), default='PLACED', nullable=False, index=True)
-    payment_status = Column(Enum(*PAYMENT_STATUSES, name='payment_status_enum'), default='PAID', nullable=False)
+    order_status = Column(Enum(*ORDER_STATUSES, name='order_status_enum', validate_strings=True, create_constraint=True), default='PLACED', nullable=False, index=True)
+    payment_status = Column(Enum(*PAYMENT_STATUSES, name='payment_status_enum', validate_strings=True, create_constraint=True), default='PAID', nullable=False)
     
     total_gross_amount = Column(Numeric(12, 2), nullable=False)
     shipping_fee = Column(Numeric(10, 2), default=0.00, nullable=False)
@@ -67,7 +67,7 @@ class OrderLine(Base):
     commission_rate = Column(Numeric(5, 4), default=0.1000, nullable=False)
     commission_amount = Column(Numeric(12, 2), default=0.00, nullable=False)
     
-    status = Column(Enum(*LINE_STATUSES, name='line_status_enum'), default='PENDING', nullable=False, index=True)
+    status = Column(Enum(*LINE_STATUSES, name='line_status_enum', validate_strings=True, create_constraint=True), default='PENDING', nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships

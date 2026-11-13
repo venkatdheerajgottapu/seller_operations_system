@@ -1,6 +1,7 @@
 import os
 from datetime import datetime
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, send_from_directory
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, send_from_directory, current_app
+from werkzeug.utils import secure_filename
 from app.config import BASE_DIR
 from app.services import (
     SellerService, OrderService, FulfillmentService,
@@ -202,11 +203,19 @@ def reports():
 
 @dashboard_bp.route('/exports/download/<filename>')
 def download_export(filename):
-    return send_from_directory(EXPORTS_DIR, filename, as_attachment=True)
+    safe_name = secure_filename(filename)
+    target_path = EXPORTS_DIR / safe_name
+    if not target_path.is_file():
+        return jsonify({'error': 'File not found or access denied', 'status_code': 404}), 404
+    return send_from_directory(EXPORTS_DIR, safe_name, as_attachment=True)
 
 
 @dashboard_bp.route('/reports/regenerate', methods=['POST'])
 def regenerate_data():
+    if current_app.config.get('ENV') == 'production' or not current_app.config.get('DEBUG'):
+        flash('Data regeneration is disabled in production to protect existing operational records.', 'danger')
+        return redirect(url_for('dashboard.reports'))
+
     preset = request.form.get('preset', 'STARTER')
     gen = SyntheticDataGenerator()
     gen.generate(preset)
