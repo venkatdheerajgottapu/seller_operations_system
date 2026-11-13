@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Seller Operations & Payout Intelligence{% endblock %}</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <!-- Custom CSS -->
+    <link href="{{ url_for('static', filename='css/custom.css') }}" rel="stylesheet">
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-light">
+    <!-- Top Navigation Bar -->
+    <nav class="navbar navbar-expand-xl navbar-dark bg-dark sticky-top shadow-sm">
+        <div class="container-fluid px-3">
+            <a class="navbar-brand d-flex align-items-center gap-2 fw-bold" href="/">
+                <i class="bi bi-shield-check text-primary fs-4"></i>
+                <span>SellerOps & Payout Intelligence</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="mainNavbar">
+                <ul class="navbar-nav me-auto mb-2 mb-xl-0 small">
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/' %}active fw-bold text-white{% endif %}" href="/">
+                            <i class="bi bi-speedometer2 me-1"></i>Overview
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if '/sellers' in request.path %}active fw-bold text-white{% endif %}" href="/sellers">
+                            <i class="bi bi-people me-1"></i>Sellers
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if '/listings' in request.path %}active fw-bold text-white{% endif %}" href="/listings">
+                            <i class="bi bi-grid me-1"></i>Listings
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if '/orders' in request.path %}active fw-bold text-white{% endif %}" href="/orders">
+                            <i class="bi bi-cart3 me-1"></i>Orders
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if '/fulfillments' in request.path %}active fw-bold text-white{% endif %}" href="/fulfillments">
+                            <i class="bi bi-truck me-1"></i>Fulfillment
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if '/disputes' in request.path %}active fw-bold text-white{% endif %}" href="/disputes">
+                            <i class="bi bi-exclamation-octagon me-1"></i>Disputes
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if '/commissions' in request.path %}active fw-bold text-white{% endif %}" href="/commissions">
+                            <i class="bi bi-percent me-1"></i>Commission
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if '/payouts' in request.path %}active fw-bold text-white{% endif %}" href="/payouts">
+                            <i class="bi bi-cash-stack me-1"></i>Payouts
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if '/anomalies' in request.path %}active fw-bold text-warning{% endif %}" href="/anomalies">
+                            <i class="bi bi-shield-exclamation me-1"></i>Anomalies
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if '/reports' in request.path %}active fw-bold text-white{% endif %}" href="/reports">
+                            <i class="bi bi-file-earmark-arrow-down me-1"></i>Exports
+                        </a>
+                    </li>
+                </ul>
+                <div class="d-flex align-items-center gap-2">
+                    <a href="/health" class="btn btn-outline-light btn-sm d-flex align-items-center gap-1" title="System Health">
+                        <i class="bi bi-heart-pulse text-danger"></i> <span class="d-none d-md-inline">Health</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Body Container -->
+    <main class="container-fluid px-3 px-lg-4 py-4">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer mt-auto py-3 bg-white border-top text-center text-muted small">
+        <div class="container-fluid px-4">
+            <div class="d-flex justify-content-between align-items-center">
+                <span>Seller Operations & Payout Intelligence Platform &bull; Antigravity</span>
+                <span>Deterministic Seed: <code>20261022</code> | High Precision Decimal Settlement</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Bootstrap Bundle JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

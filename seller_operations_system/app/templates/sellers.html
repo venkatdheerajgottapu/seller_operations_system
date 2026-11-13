@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Seller Management & Service Level Monitoring{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="fw-bold text-dark mb-1"><i class="bi bi-people text-primary me-2"></i>Seller Management & Service Level Agreements</h4>
+        <p class="text-muted small mb-0">Track compliance status, SLA shipment velocity, return rates, customer satisfaction ratings, and reserve rates.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/sellers" class="btn btn-sm {% if not current_status %}btn-primary{% else %}btn-outline-secondary{% endif %}">All</a>
+        <a href="/sellers?status=ACTIVE" class="btn btn-sm {% if current_status == 'ACTIVE' %}btn-success{% else %}btn-outline-success{% endif %}">Active</a>
+        <a href="/sellers?status=SUSPENDED" class="btn btn-sm {% if current_status == 'SUSPENDED' %}btn-danger{% else %}btn-outline-danger{% endif %}">Suspended</a>
+        <a href="/sellers?status=UNDER_REVIEW" class="btn btn-sm {% if current_status == 'UNDER_REVIEW' %}btn-warning{% else %}btn-outline-warning{% endif %}">Under Review</a>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light text-muted text-uppercase">
+                <tr>
+                    <th>Seller ID</th>
+                    <th>Business Name & Contact</th>
+                    <th>Status</th>
+                    <th>On-Time Ship %</th>
+                    <th>Fulfillment %</th>
+                    <th>Dispute %</th>
+                    <th>Return %</th>
+                    <th>Rating</th>
+                    <th>Reserve %</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in sellers %}
+                <tr>
+                    <td class="fw-bold"><code>{{ s.seller_id }}</code></td>
+                    <td>
+                        <div class="fw-semibold text-dark">{{ s.name }}</div>
+                        <div class="text-muted small">{{ s.email }}</div>
+                    </td>
+                    <td>
+                        {% if s.status == 'ACTIVE' %}
+                            <span class="badge bg-success-subtle text-success border border-success">ACTIVE</span>
+                        {% elif s.status == 'SUSPENDED' %}
+                            <span class="badge bg-danger-subtle text-danger border border-danger">SUSPENDED</span>
+                        {% elif s.status == 'UNDER_REVIEW' %}
+                            <span class="badge bg-warning-subtle text-warning-emphasis border border-warning">UNDER_REVIEW</span>
+                        {% else %}
+                            <span class="badge bg-secondary">{{ s.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="d-flex align-items-center gap-2">
+                            <span>{{ s.on_time_shipment_rate }}%</span>
+                            <div class="progress flex-grow-1" style="height: 5px;">
+                                <div class="progress-bar bg-success" style="width: {{ s.on_time_shipment_rate }}%;"></div>
+                            </div>
+                        </div>
+                    </td>
+                    <td>{{ s.fulfillment_rate }}%</td>
+                    <td>
+                        <span class="{% if s.dispute_rate > 1.0 %}text-danger fw-bold{% endif %}">{{ s.dispute_rate }}%</span>
+                    </td>
+                    <td>{{ s.return_rate }}%</td>
+                    <td>
+                        <span class="badge bg-light text-dark border">
+                            <i class="bi bi-star-fill text-warning me-1"></i>{{ s.rating }}
+                        </span>
+                    </td>
+                    <td>{{ (s.reserve_rate * 100) | round(1) }}%</td>
+                    <td class="text-end">
+                        <div class="btn-group btn-group-sm">
+                            <form action="/sellers/{{ s.seller_id }}/recalculate-sla" method="POST" class="d-inline">
+                                <button type="submit" class="btn btn-outline-secondary" title="Recalculate SLA">
+                                    <i class="bi bi-arrow-repeat"></i>
+                                </button>
+                            </form>
+                            {% if s.status == 'ACTIVE' %}
+                            <form action="/sellers/{{ s.seller_id }}/status" method="POST" class="d-inline">
+                                <input type="hidden" name="status" value="SUSPENDED">
+                                <input type="hidden" name="reason" value="Suspended via dashboard action">
+                                <button type="submit" class="btn btn-outline-danger" title="Suspend Seller">
+                                    <i class="bi bi-pause-circle"></i>
+                                </button>
+                            </form>
+                            {% else %}
+                            <form action="/sellers/{{ s.seller_id }}/status" method="POST" class="d-inline">
+                                <input type="hidden" name="status" value="ACTIVE">
+                                <input type="hidden" name="reason" value="Reactivated via dashboard action">
+                                <button type="submit" class="btn btn-outline-success" title="Activate Seller">
+                                    <i class="bi bi-play-circle"></i>
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+

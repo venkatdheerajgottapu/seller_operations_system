@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Order Operations & Multi-Seller Splitting{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="fw-bold text-dark mb-1"><i class="bi bi-cart3 text-primary me-2"></i>Order Management & Multi-Seller Line Splitting</h4>
+        <p class="text-muted small mb-0">Monitor marketplace checkout orders, automatic multi-seller fulfillment line allocation, and payment status.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/orders" class="btn btn-sm {% if not selected_status %}btn-primary{% else %}btn-outline-secondary{% endif %}">All</a>
+        <a href="/orders?status=DELIVERED" class="btn btn-sm {% if selected_status == 'DELIVERED' %}btn-success{% else %}btn-outline-success{% endif %}">Delivered</a>
+        <a href="/orders?status=SHIPPED" class="btn btn-sm {% if selected_status == 'SHIPPED' %}btn-info{% else %}btn-outline-info{% endif %}">Shipped</a>
+        <a href="/orders?status=PROCESSING" class="btn btn-sm {% if selected_status == 'PROCESSING' %}btn-warning{% else %}btn-outline-warning{% endif %}">Processing</a>
+        <a href="/orders?status=CANCELLED" class="btn btn-sm {% if selected_status == 'CANCELLED' %}btn-danger{% else %}btn-outline-danger{% endif %}">Cancelled</a>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+        <span class="text-muted small">Showing Page {{ data.page }} &bull; Total Orders: <strong>{{ data.total }}</strong></span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light text-muted text-uppercase">
+                <tr>
+                    <th>Order ID</th>
+                    <th>Customer ID</th>
+                    <th>Order Date</th>
+                    <th>Gross Total</th>
+                    <th>Order Status</th>
+                    <th>Payment</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for o in data.orders %}
+                <tr>
+                    <td class="fw-bold"><code>{{ o.order_id }}</code></td>
+                    <td><code>{{ o.customer_id }}</code></td>
+                    <td>{{ o.order_date[:16] }}</td>
+                    <td class="fw-bold text-dark">${{ "{:,.2f}".format(o.total_gross_amount) }}</td>
+                    <td>
+                        {% if o.order_status == 'DELIVERED' %}
+                            <span class="badge bg-success-subtle text-success border border-success">DELIVERED</span>
+                        {% elif o.order_status == 'SHIPPED' %}
+                            <span class="badge bg-info-subtle text-info border border-info">SHIPPED</span>
+                        {% elif o.order_status == 'PROCESSING' %}
+                            <span class="badge bg-warning-subtle text-warning-emphasis border border-warning">PROCESSING</span>
+                        {% elif o.order_status == 'CANCELLED' %}
+                            <span class="badge bg-danger-subtle text-danger border border-danger">CANCELLED</span>
+                        {% else %}
+                            <span class="badge bg-secondary">{{ o.order_status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if o.payment_status == 'PAID' %}
+                            <span class="badge bg-light text-success border"><i class="bi bi-check2 me-1"></i>PAID</span>
+                        {% else %}
+                            <span class="badge bg-light text-muted border">{{ o.payment_status }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">
+                        <a href="/orders/{{ o.order_id }}" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-eye me-1"></i>Details
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer bg-white py-3 d-flex justify-content-between align-items-center">
+        <div>
+            {% if data.page > 1 %}
+            <a href="/orders?page={{ data.page - 1 }}{% if selected_status %}&status={{ selected_status }}{% endif %}" class="btn btn-outline-secondary btn-sm">&larr; Previous</a>
+            {% endif %}
+        </div>
+        <span class="small text-muted">Page {{ data.page }}</span>
+        <div>
+            {% if data.page * data.page_size < data.total %}
+            <a href="/orders?page={{ data.page + 1 }}{% if selected_status %}&status={{ selected_status }}{% endif %}" class="btn btn-outline-secondary btn-sm">Next &rarr;</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+

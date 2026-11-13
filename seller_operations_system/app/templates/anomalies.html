@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block title %}Anomaly Monitoring & Ground-Truth Intelligence{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="fw-bold text-dark mb-1"><i class="bi bi-shield-exclamation text-danger me-2"></i>Business Anomaly Detection & Ground-Truth Benchmark</h4>
+        <p class="text-muted small mb-0">Independent rule-based anomaly engine evaluated against ground truth without information leakage.</p>
+    </div>
+    <form action="/anomalies/scan" method="POST">
+        <button type="submit" class="btn btn-danger btn-sm shadow-sm d-flex align-items-center gap-1">
+            <i class="bi bi-arrow-clockwise"></i> Trigger Anomaly Scan Now
+        </button>
+    </form>
+</div>
+
+<!-- CONFUSION MATRIX & METRICS CARDS -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm border-start border-success border-4 h-100">
+            <div class="card-body p-3">
+                <div class="text-muted small text-uppercase fw-semibold">True Positives (TP)</div>
+                <div class="fs-2 fw-bold text-success mt-1">{{ evaluation.confusion_matrix.true_positives }}</div>
+                <div class="small text-muted">Violations correctly identified</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm border-start border-warning border-4 h-100">
+            <div class="card-body p-3">
+                <div class="text-muted small text-uppercase fw-semibold">False Positives (FP)</div>
+                <div class="fs-2 fw-bold text-warning-emphasis mt-1">{{ evaluation.confusion_matrix.false_positives }}</div>
+                <div class="small text-muted">Non-injected flags</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm border-start border-danger border-4 h-100">
+            <div class="card-body p-3">
+                <div class="text-muted small text-uppercase fw-semibold">False Negatives (FN)</div>
+                <div class="fs-2 fw-bold text-danger mt-1">{{ evaluation.confusion_matrix.false_negatives }}</div>
+                <div class="small text-muted">Missed ground truth violations</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm border-start border-info border-4 h-100">
+            <div class="card-body p-3">
+                <div class="text-muted small text-uppercase fw-semibold">True Negatives (TN)</div>
+                <div class="fs-2 fw-bold text-info mt-1">{{ evaluation.confusion_matrix.true_negatives }}</div>
+                <div class="small text-muted">Clean population confirmed</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- EVALUATION STATS BAR -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm bg-white p-3 text-center">
+            <div class="small text-muted text-uppercase fw-semibold">Precision</div>
+            <div class="fs-3 fw-bold text-primary mt-1">{{ (evaluation.metrics.precision * 100) | round(2) }}%</div>
+            <div class="progress mt-2" style="height: 6px;">
+                <div class="progress-bar bg-primary" style="width: {{ evaluation.metrics.precision * 100 }}%;"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm bg-white p-3 text-center">
+            <div class="small text-muted text-uppercase fw-semibold">Recall (Sensitivity)</div>
+            <div class="fs-3 fw-bold text-success mt-1">{{ (evaluation.metrics.recall * 100) | round(2) }}%</div>
+            <div class="progress mt-2" style="height: 6px;">
+                <div class="progress-bar bg-success" style="width: {{ evaluation.metrics.recall * 100 }}%;"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm bg-white p-3 text-center">
+            <div class="small text-muted text-uppercase fw-semibold">F1-Score</div>
+            <div class="fs-3 fw-bold text-dark mt-1">{{ (evaluation.metrics.f1_score * 100) | round(2) }}%</div>
+            <div class="progress mt-2" style="height: 6px;">
+                <div class="progress-bar bg-dark" style="width: {{ evaluation.metrics.f1_score * 100 }}%;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SCENARIO PERFORMANCE BREAKDOWN TABLE -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white border-bottom py-3">
+        <h6 class="fw-bold mb-0"><i class="bi bi-grid-3x3-gap text-primary me-2"></i>5 Required Anomaly Scenarios Benchmark</h6>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light text-muted text-uppercase">
+                <tr>
+                    <th>Scenario</th>
+                    <th>Name & Description</th>
+                    <th>Ground Truth</th>
+                    <th>Detected</th>
+                    <th>TP</th>
+                    <th>FP</th>
+                    <th>FN</th>
+                    <th>Precision</th>
+                    <th>Recall</th>
+                    <th>F1-Score</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set scenario_names = {
+                    'Scenario_1': 'Payout Before Delivery or Hold Release',
+                    'Scenario_2': 'Commission Applied Twice',
+                    'Scenario_3': 'Suspended Seller Continues Listing',
+                    'Scenario_4': 'Dispute Not Deducted From Payout',
+                    'Scenario_5': 'Payout Total Does Not Match Lines'
+                } %}
+                {% for key, s in evaluation.scenarios.items() %}
+                <tr>
+                    <td class="fw-bold"><code>{{ key }}</code></td>
+                    <td class="fw-semibold text-dark">{{ scenario_names[key] }}</td>
+                    <td><span class="badge bg-light text-dark border">{{ s.ground_truth_count }}</span></td>
+                    <td><span class="badge bg-danger">{{ s.detected_count }}</span></td>
+                    <td class="text-success fw-bold">{{ s.true_positives }}</td>
+                    <td class="text-warning-emphasis fw-bold">{{ s.false_positives }}</td>
+                    <td class="text-danger fw-bold">{{ s.false_negatives }}</td>
+                    <td>{{ (s.precision * 100) | round(1) }}%</td>
+                    <td>{{ (s.recall * 100) | round(1) }}%</td>
+                    <td>
+                        <span class="badge {% if s.f1_score >= 0.8 %}bg-success{% elif s.f1_score >= 0.5 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                            {{ (s.f1_score * 100) | round(1) }}%
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- DETECTED ANOMALIES LOG -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom py-3">
+        <h6 class="fw-bold mb-0"><i class="bi bi-list-ul text-danger me-2"></i>Active Runtime Detected Violations (Detector Engine)</h6>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light text-muted text-uppercase">
+                <tr>
+                    <th>Scenario</th>
+                    <th>Entity Type</th>
+                    <th>Entity ID</th>
+                    <th>Severity</th>
+                    <th>Violation Description</th>
+                    <th>Audit Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in evaluation.detected_records %}
+                <tr>
+                    <td><span class="badge bg-dark">Scenario {{ a.scenario_id }}</span></td>
+                    <td><span class="badge bg-secondary-subtle text-secondary border">{{ a.entity_type }}</span></td>
+                    <td class="fw-bold"><code>{{ a.entity_id }}</code></td>
+                    <td>
+                        {% if a.severity == 'CRITICAL' %}
+                            <span class="badge bg-danger">CRITICAL</span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark">HIGH</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ a.description }}</td>
+                    <td><code>{{ a.details }}</code></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+

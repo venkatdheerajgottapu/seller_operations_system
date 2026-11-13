@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Seller Payouts & Settlement Reconciliation{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="fw-bold text-dark mb-1"><i class="bi bi-cash-stack text-success me-2"></i>Seller Payouts & Financial Reconciliation</h4>
+        <p class="text-muted small mb-0">High-integrity settlement engine enforcing: <code>Net = Gross - Commission - Refunds - Disputes - Reserve + Adjustments</code>.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/payouts" class="btn btn-sm {% if not selected_status %}btn-primary{% else %}btn-outline-secondary{% endif %}">All</a>
+        <a href="/payouts?status=PAID" class="btn btn-sm {% if selected_status == 'PAID' %}btn-success{% else %}btn-outline-success{% endif %}">Paid</a>
+        <a href="/payouts?status=SCHEDULED" class="btn btn-sm {% if selected_status == 'SCHEDULED' %}btn-info{% else %}btn-outline-info{% endif %}">Scheduled</a>
+        <a href="/payouts?status=HELD" class="btn btn-sm {% if selected_status == 'HELD' %}btn-warning{% else %}btn-outline-warning{% endif %}">Held</a>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+        <span class="text-muted small">Showing Page {{ data.page }} &bull; Total Settlement Batches: <strong>{{ data.total }}</strong></span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light text-muted text-uppercase">
+                <tr>
+                    <th>Payout ID</th>
+                    <th>Seller ID</th>
+                    <th>Disbursement Date</th>
+                    <th>Gross Sales</th>
+                    <th>Commission</th>
+                    <th>Dispute Debit</th>
+                    <th>Reserve Hold (10%)</th>
+                    <th>Net Payout</th>
+                    <th>Reconciliation</th>
+                    <th>Status</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in data.payouts %}
+                <tr>
+                    <td class="fw-bold"><code>{{ p.payout_id }}</code></td>
+                    <td><code>{{ p.seller_id }}</code></td>
+                    <td>{{ p.payout_date[:10] }}</td>
+                    <td class="fw-semibold text-dark">${{ "{:,.2f}".format(p.gross_amount) }}</td>
+                    <td class="text-danger">-${{ "{:,.2f}".format(p.commission_deduction) }}</td>
+                    <td class="text-danger">
+                        {% if p.dispute_deduction > 0 %}
+                            -${{ "{:,.2f}".format(p.dispute_deduction) }}
+                        {% else %}
+                            $0.00
+                        {% endif %}
+                    </td>
+                    <td class="text-warning-emphasis">-${{ "{:,.2f}".format(p.reserve_hold_amount) }}</td>
+                    <td class="fw-bold text-success fs-6">${{ "{:,.2f}".format(p.net_payout_amount) }}</td>
+                    <td>
+                        {% if p.reconciliation_status == 'RECONCILED' %}
+                            <span class="badge bg-success-subtle text-success border border-success">
+                                <i class="bi bi-check2-circle me-1"></i>RECONCILED
+                            </span>
+                        {% else %}
+                            <span class="badge bg-danger-subtle text-danger border border-danger">
+                                <i class="bi bi-exclamation-diamond me-1"></i>DISCREPANCY
+                            </span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if p.status == 'PAID' %}
+                            <span class="badge bg-success">PAID</span>
+                        {% elif p.status == 'SCHEDULED' %}
+                            <span class="badge bg-info text-dark">SCHEDULED</span>
+                        {% else %}
+                            <span class="badge bg-secondary">{{ p.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">
+                        <a href="/payouts/{{ p.payout_id }}" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-eye me-1"></i>Audit
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer bg-white py-3 d-flex justify-content-between align-items-center">
+        <div>
+            {% if data.page > 1 %}
+            <a href="/payouts?page={{ data.page - 1 }}{% if selected_status %}&status={{ selected_status }}{% endif %}" class="btn btn-outline-secondary btn-sm">&larr; Previous</a>
+            {% endif %}
+        </div>
+        <span class="small text-muted">Page {{ data.page }}</span>
+        <div>
+            {% if data.page * data.page_size < data.total %}
+            <a href="/payouts?page={{ data.page + 1 }}{% if selected_status %}&status={{ selected_status }}{% endif %}" class="btn btn-outline-secondary btn-sm">Next &rarr;</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+

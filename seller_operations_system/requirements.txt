@@ -1,0 +1,17 @@
+# Core Web & API Framework
+Flask>=3.0.0
+
+# Database & ORM
+SQLAlchemy>=2.0.0
+mysql-connector-python>=8.0.0
+
+# Data Analysis & Synthetic Generation
+pandas>=2.0.0
+Faker>=20.0.0
+
+# Testing
+pytest>=8.0.0
+
+# Environment Configuration
+python-dotenv>=1.0.0
+

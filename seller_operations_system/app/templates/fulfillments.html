@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Logistics & Fulfillment Monitoring{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="fw-bold text-dark mb-1"><i class="bi bi-truck text-primary me-2"></i>Fulfillment & Logistics SLA Monitoring</h4>
+        <p class="text-muted small mb-0">Track carrier dispatch, real-time tracking numbers, delivery confirmations, and delay exceptions.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/fulfillments" class="btn btn-sm {% if not delayed_only and not selected_status %}btn-primary{% else %}btn-outline-secondary{% endif %}">All</a>
+        <a href="/fulfillments?delayed=1" class="btn btn-sm {% if delayed_only %}btn-danger{% else %}btn-outline-danger{% endif %}">
+            <i class="bi bi-clock-history me-1"></i>Delayed Only
+        </a>
+        <a href="/fulfillments?status=DELIVERED" class="btn btn-sm {% if selected_status == 'DELIVERED' %}btn-success{% else %}btn-outline-success{% endif %}">Delivered</a>
+        <a href="/fulfillments?status=IN_TRANSIT" class="btn btn-sm {% if selected_status == 'IN_TRANSIT' %}btn-info{% else %}btn-outline-info{% endif %}">In Transit</a>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+        <span class="text-muted small">Showing Page {{ data.page }} &bull; Total Shipments: <strong>{{ data.total }}</strong></span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light text-muted text-uppercase">
+                <tr>
+                    <th>Fulfillment ID</th>
+                    <th>Order Line ID</th>
+                    <th>Seller</th>
+                    <th>Carrier & Tracking</th>
+                    <th>Shipped At</th>
+                    <th>Est. Delivery</th>
+                    <th>Delivered At</th>
+                    <th>Status</th>
+                    <th>SLA Delay</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for f in data.fulfillments %}
+                <tr>
+                    <td class="fw-bold"><code>{{ f.fulfillment_id }}</code></td>
+                    <td><code>{{ f.order_line_id }}</code></td>
+                    <td><code>{{ f.seller_id }}</code></td>
+                    <td>
+                        <span class="badge bg-light text-dark border me-1">{{ f.carrier }}</span>
+                        <code>{{ f.tracking_number }}</code>
+                    </td>
+                    <td>{{ f.shipped_at[:10] if f.shipped_at else 'Pending' }}</td>
+                    <td>{{ f.estimated_delivery[:10] if f.estimated_delivery else 'N/A' }}</td>
+                    <td>{{ f.delivered_at[:10] if f.delivered_at else 'In Transit' }}</td>
+                    <td>
+                        {% if f.status == 'DELIVERED' %}
+                            <span class="badge bg-success">DELIVERED</span>
+                        {% elif f.status == 'IN_TRANSIT' %}
+                            <span class="badge bg-info text-dark">IN_TRANSIT</span>
+                        {% else %}
+                            <span class="badge bg-secondary">{{ f.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if f.is_delayed %}
+                            <span class="badge bg-danger-subtle text-danger border border-danger">
+                                <i class="bi bi-exclamation-triangle-fill me-1"></i>+{{ f.delay_days }} Days Delay
+                            </span>
+                        {% else %}
+                            <span class="badge bg-success-subtle text-success border border-success">
+                                <i class="bi bi-check-circle me-1"></i>On-Time
+                            </span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer bg-white py-3 d-flex justify-content-between align-items-center">
+        <div>
+            {% if data.page > 1 %}
+            <a href="/fulfillments?page={{ data.page - 1 }}{% if selected_status %}&status={{ selected_status }}{% endif %}{% if delayed_only %}&delayed=1{% endif %}" class="btn btn-outline-secondary btn-sm">&larr; Previous</a>
+            {% endif %}
+        </div>
+        <span class="small text-muted">Page {{ data.page }}</span>
+        <div>
+            {% if data.page * data.page_size < data.total %}
+            <a href="/fulfillments?page={{ data.page + 1 }}{% if selected_status %}&status={{ selected_status }}{% endif %}{% if delayed_only %}&delayed=1{% endif %}" class="btn btn-outline-secondary btn-sm">Next &rarr;</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
