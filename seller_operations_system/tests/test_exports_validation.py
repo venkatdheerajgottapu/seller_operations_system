@@ -142,3 +142,25 @@ def test_sql_export_syntax():
     ]
     for table_insert in expected_inserts:
         assert table_insert in content, f"Missing statement '{table_insert}' in SQL export"
+
+
+def test_full_dataset_exports():
+    """Verify FULL dataset JSON and SQL seed exports exist, are valid, and contain required entities."""
+    full_json = EXPORTS_DIR / 'dataset_full.json'
+    assert full_json.exists(), "dataset_full.json missing from exports/"
+    with open(full_json, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    assert data['metadata']['preset'] == 'FULL'
+    assert data['metadata']['sellers_count'] == 2000
+    assert data['metadata']['orders_count'] == 100000
+
+    full_sql = EXPORTS_DIR / 'seed_full.sql'
+    assert full_sql.exists(), "seed_full.sql missing from exports/"
+    with open(full_sql, 'r', encoding='utf-8') as f:
+        sql_content = f.read()
+    assert "SET FOREIGN_KEY_CHECKS = 0;" in sql_content
+    assert "SET FOREIGN_KEY_CHECKS = 1;" in sql_content
+    assert "INSERT INTO sellers" in sql_content
+    assert "INSERT INTO orders" in sql_content
+    assert "INSERT INTO anomalies" in sql_content
+
