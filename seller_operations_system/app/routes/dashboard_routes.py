@@ -21,6 +21,7 @@ EXPORTS_DIR = BASE_DIR / 'exports'
 # 1. Overview Dashboard
 # -------------------------------------------------------------------------
 @dashboard_bp.route('/')
+@dashboard_bp.route('/overview')
 def overview():
     kpis = AnalyticsService.get_dashboard_kpis()
     charts = AnalyticsService.get_chart_data()

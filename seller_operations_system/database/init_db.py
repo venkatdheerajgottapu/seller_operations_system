@@ -25,18 +25,24 @@ def initialize_schema():
 
 def seed_database_if_empty(preset: str = 'STARTER', force: bool = False):
     """Seed synthetic data only if the database is currently empty."""
-    with get_session() as session:
-        existing_sellers = session.query(Seller).count()
-        if existing_sellers > 0 and not force:
-            print(f"[SKIP SEEDING] Database already contains {existing_sellers} sellers. Existing data preserved.")
-            return False
+    engine = get_engine()
+    if force:
+        print(f"[FORCE SEED] Resetting database schema before seeding preset '{preset}'...")
+        Base.metadata.drop_all(bind=engine)
+        Base.metadata.create_all(bind=engine)
+    else:
+        with get_session() as session:
+            existing_sellers = session.query(Seller).count()
+            if existing_sellers > 0:
+                print(f"[SKIP SEEDING] Database already contains {existing_sellers} sellers. Existing data preserved.")
+                return False
 
-        print(f"Seeding database with preset '{preset}'...")
-        gen = SyntheticDataGenerator()
-        gen.generate(preset)
-        gen.save_to_db()
-        print(f"[SEED SUCCESS] Populated database with preset '{preset}'.")
-        return True
+    print(f"Seeding database with preset '{preset}'...")
+    gen = SyntheticDataGenerator()
+    gen.generate(preset)
+    gen.save_to_db()
+    print(f"[SEED SUCCESS] Populated database with preset '{preset}'.")
+    return True
 
 
 def run():

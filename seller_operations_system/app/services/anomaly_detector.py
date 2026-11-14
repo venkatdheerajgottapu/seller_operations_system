@@ -35,34 +35,32 @@ class AnomalyDetectorService:
             # Invariant: A payout marked as PAID must only include order lines
             # whose fulfillment status is 'DELIVERED'.
             # -------------------------------------------------------------
-            paid_payouts = session.query(Payout).filter(Payout.status == 'PAID').all()
-            for p in paid_payouts:
-                line_ids = [
-                    pl.order_line_id for pl in p.lines
-                    if pl.order_line_id and pl.line_type == 'SALE'
-                ]
-                if not line_ids:
-                    continue
-                
-                undelivered = session.query(Fulfillment).filter(
-                    Fulfillment.order_line_id.in_(line_ids),
+            undelivered_paid = (
+                session.query(Payout.payout_id, Fulfillment.order_line_id, Fulfillment.status)
+                .join(PayoutLine, Payout.payout_id == PayoutLine.payout_id)
+                .join(Fulfillment, PayoutLine.order_line_id == Fulfillment.order_line_id)
+                .filter(
+                    Payout.status == 'PAID',
+                    PayoutLine.line_type == 'SALE',
                     Fulfillment.status != 'DELIVERED'
-                ).all()
+                )
+                .all()
+            )
 
-                for f in undelivered:
-                    rec = AnomalyRecord(
-                        scenario_id=1,
-                        scenario_name="Payout Before Delivery or Hold Release",
-                        entity_type="PAYOUT",
-                        entity_id=p.payout_id,
-                        detected_by="DETECTOR_ENGINE",
-                        is_ground_truth=False,
-                        severity="CRITICAL",
-                        description=f"Payout {p.payout_id} is PAID but line {f.order_line_id} is in status '{f.status}'",
-                        details=f"payout_id={p.payout_id}, order_line_id={f.order_line_id}, status={f.status}"
-                    )
-                    detected_anomalies.append(rec)
-                    session.add(rec)
+            for payout_id, order_line_id, status in undelivered_paid:
+                rec = AnomalyRecord(
+                    scenario_id=1,
+                    scenario_name="Payout Before Delivery or Hold Release",
+                    entity_type="PAYOUT",
+                    entity_id=payout_id,
+                    detected_by="DETECTOR_ENGINE",
+                    is_ground_truth=False,
+                    severity="CRITICAL",
+                    description=f"Payout {payout_id} is PAID but line {order_line_id} is in status '{status}'",
+                    details=f"payout_id={payout_id}, order_line_id={order_line_id}, status={status}"
+                )
+                detected_anomalies.append(rec)
+                session.add(rec)
 
             # -------------------------------------------------------------
             # RULE 2: Commission applied twice
@@ -131,48 +129,53 @@ class AnomalyDetectorService:
             # Invariant: If an order line was paid out and had a resolved customer-favor dispute,
             # there MUST be a corresponding DISPUTE deduction in the payout lines.
             # -------------------------------------------------------------
+            settled_sales = dict(
+                session.query(PayoutLine.order_line_id, PayoutLine.payout_id)
+                .filter(PayoutLine.line_type == 'SALE', PayoutLine.order_line_id.isnot(None))
+                .all()
+            )
+            deducted_dispute_ids = set(
+                r[0] for r in session.query(PayoutLine.dispute_id)
+                .filter(PayoutLine.line_type == 'DISPUTE', PayoutLine.dispute_id.isnot(None))
+                .all()
+            )
             customer_favor_disputes = session.query(Dispute).filter(
                 Dispute.status == 'RESOLVED_CUSTOMER_FAVOR'
             ).all()
 
             for d in customer_favor_disputes:
-                # Check if the disputed order line has been paid out in any payout
-                settled_sale = session.query(PayoutLine).filter(
-                    PayoutLine.order_line_id == d.order_line_id,
-                    PayoutLine.line_type == 'SALE'
-                ).first()
-
-                if settled_sale:
-                    deducted_line = session.query(PayoutLine).filter(
-                        PayoutLine.dispute_id == d.dispute_id,
-                        PayoutLine.line_type == 'DISPUTE'
-                    ).first()
-
-                    if not deducted_line:
-                        rec = AnomalyRecord(
-                            scenario_id=4,
-                            scenario_name="Dispute Not Deducted From Payout",
-                            entity_type="DISPUTE",
-                            entity_id=d.dispute_id,
-                            detected_by="DETECTOR_ENGINE",
-                            is_ground_truth=False,
-                            severity="HIGH",
-                            description=f"Dispute {d.dispute_id} resolved in customer favor (${d.claim_amount}) was not deducted from payout {settled_sale.payout_id}",
-                            details=f"dispute_id={d.dispute_id}, claim_amount={d.claim_amount}, payout_id={settled_sale.payout_id}"
-                        )
-                        detected_anomalies.append(rec)
-                        session.add(rec)
+                payout_id = settled_sales.get(d.order_line_id)
+                if payout_id and d.dispute_id not in deducted_dispute_ids:
+                    rec = AnomalyRecord(
+                        scenario_id=4,
+                        scenario_name="Dispute Not Deducted From Payout",
+                        entity_type="DISPUTE",
+                        entity_id=d.dispute_id,
+                        detected_by="DETECTOR_ENGINE",
+                        is_ground_truth=False,
+                        severity="HIGH",
+                        description=f"Dispute {d.dispute_id} resolved in customer favor (${d.claim_amount}) was not deducted from payout {payout_id}",
+                        details=f"dispute_id={d.dispute_id}, claim_amount={d.claim_amount}, payout_id={payout_id}"
+                    )
+                    detected_anomalies.append(rec)
+                    session.add(rec)
 
             # -------------------------------------------------------------
             # RULE 5: Payout total does not match payout lines (Financial discrepancy)
             # Invariant: sum(lines.amount) == header.net_payout_amount
             # -------------------------------------------------------------
+            line_sums = dict(
+                session.query(
+                    PayoutLine.payout_id,
+                    func.coalesce(func.sum(PayoutLine.amount), Decimal('0.00'))
+                )
+                .group_by(PayoutLine.payout_id)
+                .all()
+            )
+
             all_payouts = session.query(Payout).all()
             for p in all_payouts:
-                line_sum = session.query(func.coalesce(func.sum(PayoutLine.amount), Decimal('0.00'))).filter(
-                    PayoutLine.payout_id == p.payout_id
-                ).scalar() or Decimal('0.00')
-
+                line_sum = line_sums.get(p.payout_id, Decimal('0.00'))
                 header_net = p.net_payout_amount
                 diff = abs(line_sum - header_net)
 

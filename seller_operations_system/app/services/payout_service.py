@@ -131,13 +131,11 @@ class PayoutService:
             if not seller:
                 raise ValueError(f"Seller {seller_id} not found")
 
-            # 1. Fetch already settled order line IDs
-            settled_sale_ids = {
-                pl.order_line_id for pl in session.query(PayoutLine.order_line_id).filter(
-                    PayoutLine.line_type == 'SALE',
-                    PayoutLine.order_line_id.isnot(None)
-                ).all()
-            }
+            # 1. Subquery for already settled order line IDs
+            settled_sales_subquery = (
+                session.query(PayoutLine.order_line_id)
+                .filter(PayoutLine.line_type == 'SALE', PayoutLine.order_line_id.isnot(None))
+            )
 
             # 2. Query delivered order lines eligible by delivery date + hold period
             cutoff_date = target_date - timedelta(days=hold_days)
@@ -149,41 +147,37 @@ class PayoutService:
                     OrderLine.status == 'DELIVERED',
                     Fulfillment.status == 'DELIVERED',
                     Fulfillment.delivered_at <= cutoff_date,
-                    ~OrderLine.order_line_id.in_(settled_sale_ids) if settled_sale_ids else True
+                    ~OrderLine.order_line_id.in_(settled_sales_subquery)
                 )
                 .all()
             )
 
             # 3. Query unbilled refunds (returned lines)
-            settled_refund_ids = {
-                pl.order_line_id for pl in session.query(PayoutLine.order_line_id).filter(
-                    PayoutLine.line_type == 'REFUND',
-                    PayoutLine.order_line_id.isnot(None)
-                ).all()
-            }
+            settled_refunds_subquery = (
+                session.query(PayoutLine.order_line_id)
+                .filter(PayoutLine.line_type == 'REFUND', PayoutLine.order_line_id.isnot(None))
+            )
             refund_lines = (
                 session.query(OrderLine)
                 .filter(
                     OrderLine.seller_id == seller_id,
                     OrderLine.status == 'RETURNED',
-                    ~OrderLine.order_line_id.in_(settled_refund_ids) if settled_refund_ids else True
+                    ~OrderLine.order_line_id.in_(settled_refunds_subquery)
                 )
                 .all()
             )
 
             # 4. Query unbilled customer-favor disputes
-            settled_dispute_ids = {
-                pl.dispute_id for pl in session.query(PayoutLine.dispute_id).filter(
-                    PayoutLine.line_type == 'DISPUTE',
-                    PayoutLine.dispute_id.isnot(None)
-                ).all()
-            }
+            settled_disputes_subquery = (
+                session.query(PayoutLine.dispute_id)
+                .filter(PayoutLine.line_type == 'DISPUTE', PayoutLine.dispute_id.isnot(None))
+            )
             pending_disputes = (
                 session.query(Dispute)
                 .filter(
                     Dispute.seller_id == seller_id,
                     Dispute.status == 'RESOLVED_CUSTOMER_FAVOR',
-                    ~Dispute.dispute_id.in_(settled_dispute_ids) if settled_dispute_ids else True
+                    ~Dispute.dispute_id.in_(settled_disputes_subquery)
                 )
                 .all()
             )

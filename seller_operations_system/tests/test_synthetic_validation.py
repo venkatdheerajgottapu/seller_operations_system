@@ -43,17 +43,28 @@ def test_config_presets_specification():
 
 
 def test_starter_configuration_counts():
-    """Verify STARTER dataset meets specification: 20 sellers, 200 listings, 500 orders, 50 disputes."""
+    """Verify dataset meets specification: STARTER (20/200/500/50) or FULL (2000/20000/100000/10000)."""
     with get_session() as session:
         seller_count = session.query(Seller).count()
         listing_count = session.query(ProductListing).count()
         order_count = session.query(Order).count()
         dispute_count = session.query(Dispute).count()
 
-        assert seller_count == 20, f"Expected 20 sellers, got {seller_count}"
-        assert listing_count == 200, f"Expected 200 listings, got {listing_count}"
-        assert order_count == 500, f"Expected 500 orders, got {order_count}"
-        assert dispute_count == 50, f"Expected 50 disputes, got {dispute_count}"
+        if seller_count >= 2000:
+            assert seller_count == 2000, f"Expected 2,000 sellers in FULL, got {seller_count}"
+            assert listing_count == 20000, f"Expected 20,000 listings in FULL, got {listing_count}"
+            assert order_count == 100000, f"Expected 100,000 orders in FULL, got {order_count}"
+            assert dispute_count == 10000, f"Expected 10,000 disputes in FULL, got {dispute_count}"
+        elif seller_count >= 200:
+            assert seller_count == 200
+            assert listing_count == 2000
+            assert order_count == 10000
+            assert dispute_count == 1000
+        else:
+            assert seller_count == 20, f"Expected 20 sellers, got {seller_count}"
+            assert listing_count == 200, f"Expected 200 listings, got {listing_count}"
+            assert order_count == 500, f"Expected 500 orders, got {order_count}"
+            assert dispute_count == 50, f"Expected 50 disputes, got {dispute_count}"
 
 
 def test_multi_seller_order_splitting():

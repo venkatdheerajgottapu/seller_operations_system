@@ -134,7 +134,7 @@ class SyntheticDataGenerator:
             seller = Seller(
                 seller_id=seller_id,
                 name=self.fake.company(),
-                email=f"contact@{self.fake.domain_name()}",
+                email=f"contact_{i}@{self.fake.domain_name()}",
                 phone=self.fake.phone_number()[:30],
                 status=status,
                 rating=Decimal(str(round(random.uniform(4.0, 5.0), 2))),
@@ -177,7 +177,7 @@ class SyntheticDataGenerator:
                 category=category,
                 price=price,
                 stock_quantity=stock,
-                status='ACTIVE',
+                status='INACTIVE' if seller.status == 'SUSPENDED' else 'ACTIVE',
                 created_at=created_at,
                 updated_at=created_at
             )
@@ -434,9 +434,10 @@ class SyntheticDataGenerator:
         sample_count = int(len(delivered_lines) * 0.40)
         review_lines = random.sample(delivered_lines, min(sample_count, len(delivered_lines)))
 
+        order_map = {o.order_id: o for o in self.orders}
         for i, line in enumerate(review_lines, start=1):
             review_id = f"REV-2026-{i:06d}"
-            order = next(o for o in self.orders if o.order_id == line.order_id)
+            order = order_map[line.order_id]
             rating = random.choices([5, 4, 3, 2, 1], weights=[60, 20, 10, 5, 5])[0]
             
             review = CustomerReview(
@@ -455,9 +456,10 @@ class SyntheticDataGenerator:
         eligible_lines = [l for l in self.order_lines if l.status in ('DELIVERED', 'SHIPPED', 'RETURNED')]
         chosen_lines = random.sample(eligible_lines, min(target_disputes, len(eligible_lines)))
 
+        order_map = {o.order_id: o for o in self.orders}
         for i, line in enumerate(chosen_lines, start=1):
             dispute_id = f"DSP-2026-{i:06d}"
-            order = next(o for o in self.orders if o.order_id == line.order_id)
+            order = order_map[line.order_id]
             dtype = random.choice([
                 'ITEM_NOT_RECEIVED', 'DAMAGED_ITEM', 'WRONG_ITEM',
                 'UNAUTHORIZED_CHARGE', 'DEFECTIVE_PRODUCT'
@@ -492,8 +494,25 @@ class SyntheticDataGenerator:
         """
         Derive factual SLA and quality metrics for all sellers directly from generated transactions.
         """
+        lines_by_seller: Dict[str, List[OrderLine]] = {}
+        for l in self.order_lines:
+            lines_by_seller.setdefault(l.seller_id, []).append(l)
+
+        fuls_by_seller: Dict[str, List[Fulfillment]] = {}
+        for f in self.fulfillments:
+            if f.status == 'DELIVERED':
+                fuls_by_seller.setdefault(f.seller_id, []).append(f)
+
+        disputes_by_seller: Dict[str, List[Dispute]] = {}
+        for d in self.disputes:
+            disputes_by_seller.setdefault(d.seller_id, []).append(d)
+
+        reviews_by_seller: Dict[str, List[CustomerReview]] = {}
+        for r in self.reviews:
+            reviews_by_seller.setdefault(r.seller_id, []).append(r)
+
         for seller in self.sellers:
-            s_lines = [l for l in self.order_lines if l.seller_id == seller.seller_id]
+            s_lines = lines_by_seller.get(seller.seller_id, [])
             total_lines = len(s_lines)
             if total_lines == 0:
                 continue
@@ -502,7 +521,7 @@ class SyntheticDataGenerator:
             cancelled_lines = [l for l in s_lines if l.status == 'CANCELLED']
             returned_lines = [l for l in s_lines if l.status == 'RETURNED']
 
-            s_fuls = [f for f in self.fulfillments if f.seller_id == seller.seller_id and f.status == 'DELIVERED']
+            s_fuls = fuls_by_seller.get(seller.seller_id, [])
             delayed_fuls = [f for f in s_fuls if f.is_delayed]
 
             on_time_count = max(0, len(s_fuls) - len(delayed_fuls))
@@ -512,10 +531,10 @@ class SyntheticDataGenerator:
             cancellation_rate = Decimal(str(round((len(cancelled_lines) / total_lines) * 100, 2)))
             return_rate = Decimal(str(round((len(returned_lines) / total_lines) * 100, 2)))
 
-            s_disputes = [d for d in self.disputes if d.seller_id == seller.seller_id]
+            s_disputes = disputes_by_seller.get(seller.seller_id, [])
             dispute_rate = Decimal(str(round((len(s_disputes) / total_lines) * 100, 2)))
 
-            s_reviews = [r for r in self.reviews if r.seller_id == seller.seller_id]
+            s_reviews = reviews_by_seller.get(seller.seller_id, [])
             avg_rating = Decimal(str(round(sum(r.rating for r in s_reviews) / len(s_reviews), 2))) if s_reviews else Decimal('5.00')
 
             seller.on_time_shipment_rate = on_time_rate
@@ -541,6 +560,11 @@ class SyntheticDataGenerator:
         returned_by_seller: Dict[str, List[OrderLine]] = {}
         for l in returned_lines:
             returned_by_seller.setdefault(l.seller_id, []).append(l)
+
+        disputes_by_line: Dict[str, List[Dispute]] = {}
+        for d in self.disputes:
+            if d.status == 'RESOLVED_CUSTOMER_FAVOR':
+                disputes_by_line.setdefault(d.order_line_id, []).append(d)
 
         payout_counter = 1
         for seller_id, lines in lines_by_seller.items():
@@ -582,8 +606,10 @@ class SyntheticDataGenerator:
                     adjustments += release_amount
 
                 # Check if any chunk line had a resolved dispute
-                chunk_line_ids = {l.order_line_id for l in chunk}
-                chunk_disputes = [d for d in self.disputes if d.order_line_id in chunk_line_ids and d.status == 'RESOLVED_CUSTOMER_FAVOR']
+                chunk_disputes = []
+                for l in chunk:
+                    if l.order_line_id in disputes_by_line:
+                        chunk_disputes.extend(disputes_by_line[l.order_line_id])
                 for d in chunk_disputes:
                     dispute_deduction += d.deduction_amount
 
@@ -731,9 +757,11 @@ class SyntheticDataGenerator:
 
         # Scenario 2: Commission applied twice
         # Target: Order line where commission deduction occurs twice in payout lines
-        if len(self.payouts) >= 2 and len(self.order_lines) >= 2:
-            target_payout = self.payouts[1]
-            target_line = self.order_lines[0]
+        comm_lines = [pl for pl in self.payout_lines if pl.line_type == 'COMMISSION' and pl.order_line_id]
+        if comm_lines:
+            target_comm_line = comm_lines[0]
+            target_payout = next(p for p in self.payouts if p.payout_id == target_comm_line.payout_id)
+            target_line = next(ol for ol in self.order_lines if ol.order_line_id == target_comm_line.order_line_id)
             extra_line_id = f"PAYLINE-{target_payout.payout_id[-6:]}-999"
             dup_commission_line = PayoutLine(
                 payout_line_id=extra_line_id,
@@ -836,34 +864,31 @@ class SyntheticDataGenerator:
         """Persist all generated records to the database."""
         with get_session(database_uri) as session:
             print("Persisting records to database...")
+
+            def add_in_batches(items, name, batch_size=10000):
+                print(f"  Persisting {len(items):,} {name}...")
+                for i in range(0, len(items), batch_size):
+                    session.add_all(items[i:i + batch_size])
+                    session.flush()
+
             session.add_all(self.commission_rules)
             session.add_all(self.sellers)
             session.flush()
 
-            session.add_all(self.listings)
-            session.add_all(self.customers)
-            session.flush()
-
-            session.add_all(self.orders)
-            session.flush()
-
-            session.add_all(self.order_lines)
-            session.flush()
-
-            session.add_all(self.fulfillments)
-            session.add_all(self.reviews)
-            session.add_all(self.disputes)
-            session.flush()
-
-            session.add_all(self.payouts)
-            session.flush()
-
-            session.add_all(self.payout_lines)
-            session.add_all(self.seller_events)
-            session.add_all(self.listing_events)
-            session.add_all(self.order_events)
-            session.add_all(self.fulfillment_events)
-            session.add_all(self.payout_events)
+            add_in_batches(self.listings, "listings")
+            add_in_batches(self.customers, "customers")
+            add_in_batches(self.orders, "orders")
+            add_in_batches(self.order_lines, "order lines")
+            add_in_batches(self.fulfillments, "fulfillments")
+            add_in_batches(self.reviews, "reviews")
+            add_in_batches(self.disputes, "disputes")
+            add_in_batches(self.payouts, "payouts")
+            add_in_batches(self.payout_lines, "payout lines")
+            add_in_batches(self.seller_events, "seller events")
+            add_in_batches(self.listing_events, "listing events")
+            add_in_batches(self.order_events, "order events")
+            add_in_batches(self.fulfillment_events, "fulfillment events")
+            add_in_batches(self.payout_events, "payout events")
             session.add_all(self.ground_truth_anomalies)
             session.commit()
             print("Successfully persisted synthetic dataset into database!")
